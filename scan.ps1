@@ -174,10 +174,11 @@ if ($UserName -notmatch '^[A-Za-z0-9._-]+(?:\\[A-Za-z0-9._-]+)?$') {
 }
 
 if ([string]::IsNullOrWhiteSpace($CommandTemplate)) {
-    $CommandTemplate = (Read-Host 'SSH 命令模板 [ssh {user}@10.30.3.x]').Trim()
-    if ([string]::IsNullOrWhiteSpace($CommandTemplate)) {
-        $CommandTemplate = 'ssh {user}@10.30.3.x'
-    }
+    $CommandTemplate = (Read-Host 'SSH 命令模板（IPv4 末段使用 x）').Trim()
+}
+
+if ([string]::IsNullOrWhiteSpace($CommandTemplate)) {
+    throw 'SSH 命令模板不能为空。'
 }
 
 if ($StartHost -gt $EndHost) {
@@ -194,7 +195,7 @@ $templateWithUser = [regex]::Replace(
 $addressPattern = '(?<!\d)(?<a>\d{1,3})\.(?<b>\d{1,3})\.(?<c>\d{1,3})\.[xX](?![A-Za-z0-9])'
 $addressMatches = [regex]::Matches($templateWithUser, $addressPattern)
 if ($addressMatches.Count -ne 1) {
-    throw 'SSH 命令模板必须且只能包含一个 IPv4 末段占位符，例如 10.30.3.x。'
+    throw 'SSH 命令模板必须且只能包含一个 IPv4 末段占位符 x。'
 }
 
 $addressMatch = $addressMatches[0]

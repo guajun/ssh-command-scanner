@@ -1,11 +1,15 @@
 # SSH Command Scanner
 
-一个面向 Windows OpenSSH 的交互式 IPv4 `/24` SSH 扫描器。输入用户名和 SSH 命令模板后，脚本对范围内每个地址发起一次非交互连接，并在终端输出完整 ASCII 表格。
+一个支持 PowerShell 与 Bash 的交互式 IPv4 `/24` SSH 扫描器。输入用户名和 SSH 命令模板后，脚本对范围内每个地址发起一次非交互连接，并在终端输出完整 ASCII 表格。
 
 ## 一行运行
 
 ```powershell
 iex ([Text.Encoding]::UTF8.GetString((iwr -UseBasicParsing 'https://guajun.github.io/ssh-command-scanner/scan.ps1').Content).TrimStart([char]0xFEFF))
+```
+
+```bash
+bash <(curl -fsSL 'https://guajun.github.io/ssh-command-scanner/scan.sh')
 ```
 
 也可以在 [GitHub Pages](https://guajun.github.io/ssh-command-scanner/) 中填写参数，生成定制的一行命令。
@@ -34,23 +38,34 @@ BatchMode=yes
 ConnectionAttempts=1
 ConnectTimeout=<超时秒数>
 StrictHostKeyChecking=no
-UserKnownHostsFile=NUL
+UserKnownHostsFile=NUL 或 /dev/null
 LogLevel=ERROR
 ```
 
-`BatchMode=yes` 会关闭密码交互。认证由当前 Windows 用户的默认 OpenSSH 私钥、`ssh-agent` 中的 key，或模板中 `-i` 指定的私钥完成。私钥不会离开本机。
+`BatchMode=yes` 会关闭密码交互。认证由当前用户的默认 OpenSSH 私钥、`ssh-agent` 中的 key，或模板中 `-i` 指定的私钥完成。私钥不会离开本机。
 
 ## 参数
 
 ```powershell
 .\scan.ps1 `
-  -UserName young `
+  -UserName admin `
   -CommandTemplate 'ssh {user}@10.30.3.x' `
   -StartHost 1 `
   -EndHost 254 `
   -Timeout 3 `
   -ThrottleLimit 32 `
   -TextOutputPath .\result.txt
+```
+
+```bash
+./scan.sh \
+  --user admin \
+  --command-template 'ssh {user}@10.30.3.x' \
+  --start-host 1 \
+  --end-host 254 \
+  --timeout 3 \
+  --throttle-limit 32 \
+  --text-output-path ./result.txt
 ```
 
 默认不会创建文件。仅在提供 `-TextOutputPath` 时，才会把终端中的同一张 ASCII 表格写入 UTF-8 `.txt` 文件；省略扩展名时会自动补充 `.txt`。
@@ -88,6 +103,15 @@ notepad .\scan.ps1
 ```
 
 每个 Release 附带 `checksums.txt`。仅扫描你有权访问的网络。
+
+Bash 脚本可以这样下载检查：
+
+```bash
+curl -fSLo scan.sh https://guajun.github.io/ssh-command-scanner/scan.sh
+sha256sum scan.sh
+less scan.sh
+bash scan.sh
+```
 
 ## License
 

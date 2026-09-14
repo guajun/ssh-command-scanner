@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#171918">
-  <meta name="description" content="生成可审查的一行 PowerShell 命令，使用当前用户 SSH key 扫描 IPv4 /24 网段并输出终端表格。">
+  <meta name="description" content="生成可审查的 PowerShell 或 Bash 一行命令，使用当前用户 SSH key 扫描 IPv4 /24 网段并输出终端表格。">
   <meta property="og:title" content="SSH Command Scanner">
   <meta property="og:description" content="自定义 SSH 命令模板，一次扫描一个 IPv4 /24 网段。">
   <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
@@ -26,19 +26,23 @@
   <main>
     <section class="builder-band" aria-labelledby="page-title">
       <div class="shell">
-        <p class="eyebrow">WINDOWS · OPENSSH · POWERSHELL 5.1+</p>
+        <p class="eyebrow">OPENSSH · POWERSHELL 5.1+ · BASH 3.2+</p>
         <h1 id="page-title">SSH 网段扫描器</h1>
-        <p class="lede">填写 SSH 命令模板，生成一条可直接运行的 PowerShell 命令。</p>
+        <p class="lede">填写 SSH 命令模板，生成一条可直接运行的终端命令。</p>
 
         <form id="command-form" class="command-form">
+          <div class="mode-control" role="tablist" aria-label="脚本类型">
+            <button type="button" role="tab" aria-selected="true" data-mode="powershell">PowerShell</button>
+            <button type="button" role="tab" aria-selected="false" data-mode="bash">Bash</button>
+          </div>
           <div class="field-grid">
             <label class="field">
               <span>SSH 用户名 <small>留空则运行时询问</small></span>
-              <input id="username" name="username" type="text" autocomplete="username" placeholder="young" spellcheck="false">
+              <input id="username" name="username" type="text" autocomplete="off" spellcheck="false">
             </label>
             <label class="field field-wide">
-              <span>SSH 命令模板</span>
-              <input id="template" name="template" type="text" value="ssh {user}@10.30.3.x" spellcheck="false" required>
+              <span>SSH 命令模板 <small>留空则运行时询问</small></span>
+              <input id="template" name="template" type="text" placeholder="ssh {user}@&lt;IPv4 网段&gt;.x" spellcheck="false">
             </label>
           </div>
 
@@ -71,10 +75,10 @@
           <div class="command-output" aria-live="polite">
             <div class="command-meta">
               <span>生成的命令</span>
-              <span id="validation-status" class="validation-status">模板有效</span>
+              <span id="validation-status" class="validation-status">运行时询问</span>
             </div>
             <code id="generated-command"></code>
-            <button id="copy-button" class="copy-button" type="button" title="复制生成的 PowerShell 命令">
+            <button id="copy-button" class="copy-button" type="button" title="复制生成的终端命令">
               <span class="copy-symbol" aria-hidden="true">⧉</span>
               <span id="copy-label">复制命令</span>
             </button>
@@ -98,7 +102,7 @@
         <div class="target-preview" aria-label="目标预览">
           <div class="terminal-bar">
             <span>目标预览</span>
-            <span id="target-count">254 hosts</span>
+            <span id="target-count">未配置</span>
           </div>
           <ol id="target-preview-list"></ol>
         </div>
@@ -108,6 +112,7 @@
     <section class="links-band" aria-label="下载与校验">
       <div class="shell link-row">
         <a href="scan.ps1" download>下载 scan.ps1</a>
+        <a href="scan.sh" download>下载 scan.sh</a>
         <a href="https://github.com/guajun/ssh-command-scanner/releases/latest">Release 与 SHA-256</a>
         <span>MIT License</span>
       </div>

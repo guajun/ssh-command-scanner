@@ -1,4 +1,5 @@
 const SCRIPT_URL = "https://guajun.github.io/ssh-command-scanner/scan.ps1";
+const BASH_SCRIPT_URL = "https://guajun.github.io/ssh-command-scanner/scan.sh";
 
 const elements = {
   form: document.querySelector("#command-form"),
@@ -9,6 +10,7 @@ const elements = {
   timeout: document.querySelector("#timeout"),
   throttle: document.querySelector("#throttle"),
   textOutput: document.querySelector("#text-output"),
+  modeButtons: [...document.querySelectorAll("[data-mode]")],
   command: document.querySelector("#generated-command"),
   copyButton: document.querySelector("#copy-button"),
   copyLabel: document.querySelector("#copy-label"),
@@ -17,8 +19,14 @@ const elements = {
   previewList: document.querySelector("#target-preview-list"),
 };
 
+let selectedMode = "powershell";
+
 function quotePowerShell(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+function quoteBash(value) {
+  return `'${String(value).replaceAll("'", `'"'"'`)}'`;
 }
 
 function clampInteger(value, minimum, maximum, fallback) {
@@ -47,17 +55,32 @@ function getTemplateMatch(template) {
 }
 
 function buildCommand(state) {
-  const parameters = ["-CommandTemplate", quotePowerShell(state.template)];
+  if (selectedMode === "bash") {
+    const parameters = [];
+    if (state.template) parameters.push("--command-template", quoteBash(state.template));
+    if (state.username) parameters.push("--user", quoteBash(state.username));
+    parameters.push(
+      "--start-host",
+      String(state.startHost),
+      "--end-host",
+      String(state.endHost),
+      "--timeout",
+      String(state.timeout),
+      "--throttle-limit",
+      String(state.throttle),
+    );
+    if (state.textOutput) parameters.push("--text-output-path", quoteBash(state.textOutput));
+    return `bash <(curl -fsSL ${quoteBash(BASH_SCRIPT_URL)}) ${parameters.join(" ")}`;
+  }
+
+  const parameters = [];
+  if (state.template) parameters.push("-CommandTemplate", quotePowerShell(state.template));
   if (state.username) parameters.push("-UserName", quotePowerShell(state.username));
   parameters.push(
-    "-StartHost",
-    String(state.startHost),
-    "-EndHost",
-    String(state.endHost),
-    "-Timeout",
-    String(state.timeout),
-    "-ThrottleLimit",
-    String(state.throttle),
+    "-StartHost", String(state.startHost),
+    "-EndHost", String(state.endHost),
+    "-Timeout", String(state.timeout),
+    "-ThrottleLimit", String(state.throttle),
   );
   if (state.textOutput) parameters.push("-TextOutputPath", quotePowerShell(state.textOutput));
 
@@ -66,13 +89,23 @@ function buildCommand(state) {
 }
 
 function renderPreview(state, match) {
+  if (!match) {
+    elements.targetCount.textContent = "未配置";
+    elements.previewList.classList.add("empty");
+    const item = document.createElement("li");
+    item.textContent = "—";
+    elements.previewList.replaceChildren(item);
+    return;
+  }
+
   const start = Math.min(state.startHost, state.endHost);
   const end = Math.max(state.startHost, state.endHost);
   const count = end - start + 1;
   const midpoint = Math.floor((start + end) / 2);
   const values = [...new Set([start, Math.min(start + 1, end), midpoint, end])];
-  const prefix = match ? `${match[1]}.${match[2]}.${match[3]}` : "0.0.0";
+  const prefix = `${match[1]}.${match[2]}.${match[3]}`;
 
+  elements.previewList.classList.remove("empty");
   elements.targetCount.textContent = `${count} host${count === 1 ? "" : "s"}`;
   elements.previewList.replaceChildren(
     ...values.map((host) => {
@@ -86,11 +119,12 @@ function renderPreview(state, match) {
 function render() {
   const state = readState();
   const match = getTemplateMatch(state.template);
-  const isValid = Boolean(match) && state.startHost <= state.endHost && /^ssh(?:\.exe)?\s/i.test(state.template);
+  const isInteractive = state.template === "";
+  const isValid = state.startHost <= state.endHost && (isInteractive || (Boolean(match) && /^ssh(?:\.exe)?\s/i.test(state.template)));
 
   elements.command.textContent = buildCommand(state);
   elements.copyButton.disabled = !isValid;
-  elements.validation.textContent = isValid ? "模板有效" : "检查 ssh 开头、网段 .x 和地址范围";
+  elements.validation.textContent = isInteractive ? "运行时询问" : isValid ? "模板有效" : "检查 ssh 开头、网段 .x 和地址范围";
   elements.validation.classList.toggle("invalid", !isValid);
   renderPreview(state, match);
 }
@@ -108,6 +142,15 @@ elements.form.addEventListener("submit", (event) => event.preventDefault());
 elements.copyButton.addEventListener("click", () => {
   copyCommand().catch(() => {
     elements.copyLabel.textContent = "复制失败";
+  });
+});
+elements.modeButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    selectedMode = button.dataset.mode;
+    elements.modeButtons.forEach((candidate) => {
+      candidate.setAttribute("aria-selected", String(candidate === button));
+    });
+    render();
   });
 });
 
