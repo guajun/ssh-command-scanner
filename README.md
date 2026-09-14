@@ -5,7 +5,7 @@
 ## 一行运行
 
 ```powershell
-iex ((irm 'https://guajun.github.io/ssh-command-scanner/scan.ps1').TrimStart([char]0xFEFF))
+iex ([Text.Encoding]::UTF8.GetString((iwr -UseBasicParsing 'https://guajun.github.io/ssh-command-scanner/scan.ps1').Content).TrimStart([char]0xFEFF))
 ```
 
 也可以在 [GitHub Pages](https://guajun.github.io/ssh-command-scanner/) 中填写参数，生成定制的一行命令。

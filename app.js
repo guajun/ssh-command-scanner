@@ -58,7 +58,8 @@ function buildCommand(state) {
     String(state.throttle),
   );
 
-  return `& ([scriptblock]::Create((irm ${quotePowerShell(SCRIPT_URL)}).TrimStart([char]0xFEFF))) ${parameters.join(" ")}`;
+  const loader = `[Text.Encoding]::UTF8.GetString((iwr -UseBasicParsing ${quotePowerShell(SCRIPT_URL)}).Content).TrimStart([char]0xFEFF)`;
+  return `& ([scriptblock]::Create(${loader})) ${parameters.join(" ")}`;
 }
 
 function renderPreview(state, match) {
