@@ -8,6 +8,7 @@ const elements = {
   endHost: document.querySelector("#end-host"),
   timeout: document.querySelector("#timeout"),
   throttle: document.querySelector("#throttle"),
+  textOutput: document.querySelector("#text-output"),
   command: document.querySelector("#generated-command"),
   copyButton: document.querySelector("#copy-button"),
   copyLabel: document.querySelector("#copy-label"),
@@ -34,6 +35,7 @@ function readState() {
     endHost: clampInteger(elements.endHost.value, 0, 255, 254),
     timeout: clampInteger(elements.timeout.value, 1, 60, 3),
     throttle: clampInteger(elements.throttle.value, 1, 128, 32),
+    textOutput: elements.textOutput.value.trim(),
   };
 }
 
@@ -57,6 +59,7 @@ function buildCommand(state) {
     "-ThrottleLimit",
     String(state.throttle),
   );
+  if (state.textOutput) parameters.push("-TextOutputPath", quotePowerShell(state.textOutput));
 
   const loader = `[Text.Encoding]::UTF8.GetString((iwr -UseBasicParsing ${quotePowerShell(SCRIPT_URL)}).Content).TrimStart([char]0xFEFF)`;
   return `& ([scriptblock]::Create(${loader})) ${parameters.join(" ")}`;

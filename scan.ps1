@@ -12,7 +12,7 @@ param(
     [int]$Timeout = 3,
     [ValidateRange(1, 128)]
     [int]$ThrottleLimit = 32,
-    [string]$OutputPath,
+    [string]$TextOutputPath,
     [switch]$NoColor
 )
 
@@ -111,6 +111,60 @@ function Get-ScanStatus {
     return 'other_error'
 }
 
+function ConvertTo-TableText {
+    param(
+        [AllowNull()]
+        [string]$Value,
+        [int]$MaximumLength = 54
+    )
+
+    if ($null -eq $Value) { return '' }
+
+    $singleLine = ($Value -replace '[\r\n\t]+', ' ' -replace '\|', '/').Trim()
+    if ($singleLine.Length -le $MaximumLength) { return $singleLine }
+    return $singleLine.Substring(0, $MaximumLength - 3) + '...'
+}
+
+function Format-AsciiTable {
+    param([Parameter(Mandatory = $true)][object[]]$Rows)
+
+    $displayRows = @($Rows | ForEach-Object {
+        [pscustomobject]@{
+            IP = [string]$_.IP
+            Status = [string]$_.Status
+            ExitCode = [string]$_.ExitCode
+            DurationMs = [string]$_.DurationMs
+            Detail = ConvertTo-TableText -Value ([string]$_.Detail)
+        }
+    })
+
+    $columns = @(
+        [pscustomobject]@{ Key = 'IP'; Header = 'IP'; Width = 2 }
+        [pscustomobject]@{ Key = 'Status'; Header = 'Status'; Width = 6 }
+        [pscustomobject]@{ Key = 'ExitCode'; Header = 'Exit'; Width = 4 }
+        [pscustomobject]@{ Key = 'DurationMs'; Header = 'Time(ms)'; Width = 8 }
+        [pscustomobject]@{ Key = 'Detail'; Header = 'Detail'; Width = 6 }
+    )
+
+    foreach ($column in $columns) {
+        $maximumCellWidth = ($displayRows | ForEach-Object { ([string]$_.($column.Key)).Length } | Measure-Object -Maximum).Maximum
+        $column.Width = [Math]::Max($column.Header.Length, [int]$maximumCellWidth)
+    }
+
+    $border = '+' + (($columns | ForEach-Object { '-' * ($_.Width + 2) }) -join '+') + '+'
+    $lines = New-Object 'System.Collections.Generic.List[string]'
+    $lines.Add($border)
+    $lines.Add('| ' + (($columns | ForEach-Object { $_.Header.PadRight($_.Width) }) -join ' | ') + ' |')
+    $lines.Add($border)
+
+    foreach ($row in $displayRows) {
+        $lines.Add('| ' + (($columns | ForEach-Object { ([string]$row.($_.Key)).PadRight($_.Width) }) -join ' | ') + ' |')
+    }
+
+    $lines.Add($border)
+    return $lines -join [Environment]::NewLine
+}
+
 if ([string]::IsNullOrWhiteSpace($UserName)) {
     $UserName = (Read-Host 'SSH 用户名').Trim()
 }
@@ -176,17 +230,19 @@ foreach ($hostNumber in $StartHost..$EndHost) {
     })
 }
 
-if ([string]::IsNullOrWhiteSpace($OutputPath)) {
-    $fileName = 'ssh-scan-{0}.csv' -f (Get-Date -Format 'yyyyMMdd-HHmmss')
-    $OutputPath = Join-Path (Get-Location) $fileName
-}
-else {
-    $OutputPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputPath)
-}
+if (-not [string]::IsNullOrWhiteSpace($TextOutputPath)) {
+    if ([string]::IsNullOrWhiteSpace([System.IO.Path]::GetExtension($TextOutputPath))) {
+        $TextOutputPath += '.txt'
+    }
+    elseif ([System.IO.Path]::GetExtension($TextOutputPath) -ne '.txt') {
+        throw 'TextOutputPath 必须使用 .txt 扩展名。'
+    }
 
-$outputDirectory = Split-Path -Parent $OutputPath
-if (-not [string]::IsNullOrWhiteSpace($outputDirectory) -and -not (Test-Path -LiteralPath $outputDirectory -PathType Container)) {
-    throw "输出目录不存在：$outputDirectory"
+    $TextOutputPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($TextOutputPath)
+    $outputDirectory = Split-Path -Parent $TextOutputPath
+    if (-not [string]::IsNullOrWhiteSpace($outputDirectory) -and -not (Test-Path -LiteralPath $outputDirectory -PathType Container)) {
+        throw "输出目录不存在：$outputDirectory"
+    }
 }
 
 Write-ScanMessage "`nSSH 网段扫描器" Cyan
@@ -270,16 +326,25 @@ finally {
 }
 
 $sortedResults = @($results | Sort-Object { [int]($_.IP.Split('.')[-1]) })
-$sortedResults | Export-Csv -LiteralPath $OutputPath -NoTypeInformation -Encoding UTF8
+$tableText = Format-AsciiTable -Rows $sortedResults
+$summaryParts = @($sortedResults | Group-Object Status | Sort-Object Name | ForEach-Object { '{0}={1}' -f $_.Name, $_.Count })
+$summaryText = 'Summary: ' + ($summaryParts -join '  ')
 
-Write-ScanMessage "`n扫描结果" Cyan
-$summary = $sortedResults | Group-Object Status | Sort-Object Name | Select-Object Name, Count
-$summary | Format-Table -AutoSize
+Write-ScanMessage "`n扫描结果 ($($sortedResults.Count))" Cyan
+Write-Host $tableText
+Write-ScanMessage $summaryText Cyan
 
-$actionable = @($sortedResults | Where-Object { $_.Status -ne 'unreachable_or_timeout' })
-if ($actionable.Count -gt 0) {
-    Write-ScanMessage '可达或需关注的地址' Yellow
-    $actionable | Format-Table IP, Status, ExitCode, DurationMs, Detail -AutoSize -Wrap
+if (-not [string]::IsNullOrWhiteSpace($TextOutputPath)) {
+    $report = @(
+        'SSH Command Scanner'
+        'Generated: {0}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')
+        'Target: {0}.{1}-{0}.{2}' -f $prefix, $StartHost, $EndHost
+        'User: {0}' -f $UserName
+        ''
+        $tableText
+        ''
+        $summaryText
+    ) -join [Environment]::NewLine
+    $report | Set-Content -LiteralPath $TextOutputPath -Encoding UTF8
+    Write-ScanMessage "ASCII 表格：$TextOutputPath" Green
 }
-
-Write-ScanMessage "完整结果：$OutputPath" Green

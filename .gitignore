@@ -1,4 +1,4 @@
-ssh-scan-*.csv
+ssh-scan-*.txt
 dist/
 server.*.log
 .DS_Store

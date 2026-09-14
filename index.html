@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#171918">
-  <meta name="description" content="生成可审查的一行 PowerShell 命令，使用当前用户 SSH key 并发扫描 IPv4 /24 网段。">
+  <meta name="description" content="生成可审查的一行 PowerShell 命令，使用当前用户 SSH key 扫描 IPv4 /24 网段并输出终端表格。">
   <meta property="og:title" content="SSH Command Scanner">
   <meta property="og:description" content="自定义 SSH 命令模板，一次扫描一个 IPv4 /24 网段。">
   <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
@@ -61,6 +61,10 @@
                 <span>并发数</span>
                 <input id="throttle" type="number" min="1" max="128" value="32">
               </label>
+              <label class="field field-full">
+                <span>ASCII 表格文件 <small>可选，仅支持 .txt</small></span>
+                <input id="text-output" type="text" placeholder="C:\Temp\ssh-scan.txt" spellcheck="false">
+              </label>
             </div>
           </details>
 
@@ -83,7 +87,7 @@
       <div class="shell status-layout">
         <div>
           <p class="section-kicker">OUTPUT</p>
-          <h2 id="status-title">一次连接，一份 CSV</h2>
+          <h2 id="status-title">一次连接，一张终端表格</h2>
         </div>
         <div class="status-list" role="list" aria-label="扫描状态">
           <span role="listitem"><i class="dot dot-green"></i>密钥登录成功</span>

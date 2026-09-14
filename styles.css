@@ -182,6 +182,10 @@ input:focus {
   padding: 2px 0 18px;
 }
 
+.field-full {
+  grid-column: 1 / -1;
+}
+
 .command-output {
   position: relative;
   min-height: 168px;

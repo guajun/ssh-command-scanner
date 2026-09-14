@@ -1,6 +1,6 @@
 # SSH Command Scanner
 
-一个面向 Windows OpenSSH 的交互式 IPv4 `/24` SSH 扫描器。输入用户名和 SSH 命令模板后，脚本对范围内每个地址发起一次非交互连接，并将完整结果写入 CSV。
+一个面向 Windows OpenSSH 的交互式 IPv4 `/24` SSH 扫描器。输入用户名和 SSH 命令模板后，脚本对范围内每个地址发起一次非交互连接，并在终端输出完整 ASCII 表格。
 
 ## 一行运行
 
@@ -50,8 +50,10 @@ LogLevel=ERROR
   -EndHost 254 `
   -Timeout 3 `
   -ThrottleLimit 32 `
-  -OutputPath .\result.csv
+  -TextOutputPath .\result.txt
 ```
+
+默认不会创建文件。仅在提供 `-TextOutputPath` 时，才会把终端中的同一张 ASCII 表格写入 UTF-8 `.txt` 文件；省略扩展名时会自动补充 `.txt`。
 
 状态含义：
 
@@ -64,6 +66,17 @@ LogLevel=ERROR
 | `host_key_failed` | 主机指纹校验失败 |
 | `indeterminate` | SSH 返回 255，但没有诊断文本 |
 | `other_error` | 其他 SSH 或本地执行错误 |
+
+## 终端输出
+
+```text
++------------+-----------------------+------+----------+-------------------+
+| IP         | Status                | Exit | Time(ms) | Detail            |
++------------+-----------------------+------+----------+-------------------+
+| 10.30.3.94 | reachable_auth_failed | 255  | 108      | Permission denied |
+| 10.30.3.155 | connected             | 0    | 76       |                   |
++------------+-----------------------+------+----------+-------------------+
+```
 
 ## 先审查再运行
 
