@@ -254,7 +254,7 @@ scan_one() {
   local host_number=$1
   local address="${prefix}.${host_number}"
   local rendered_command=${template_with_user/"$target_placeholder"/"$address"}
-  local started finished duration output exit_code status detail result_file
+  local started finished duration output exit_code status detail full_detail result_file
 
   if ! split_ssh_command "$rendered_command"; then
     printf -v result_file '%s/result-%03d.tsv' "$temp_dir" "$host_number"
@@ -275,14 +275,15 @@ scan_one() {
   finished=$(now_ms)
   duration=$((finished - started))
 
-  detail=${output//$'\r'/ }
-  detail=${detail//$'\n'/ }
-  detail=${detail//$'\t'/ }
-  detail=${detail//|//}
+  full_detail=${output//$'\r'/ }
+  full_detail=${full_detail//$'\n'/ }
+  full_detail=${full_detail//$'\t'/ }
+  full_detail=${full_detail//|//}
+  status=$(classify_result "$exit_code" "$full_detail")
+  detail=$full_detail
   if ((${#detail} > detail_limit)); then
     detail=${detail:0:detail_limit-3}...
   fi
-  status=$(classify_result "$exit_code" "$detail")
 
   printf -v result_file '%s/result-%03d.tsv' "$temp_dir" "$host_number"
   printf '%03d\t%s\t%s\t%s\t%s\t%s\n' "$host_number" "$address" "$status" "$exit_code" "$duration" "$detail" >"$result_file"
