@@ -30,8 +30,8 @@ Options:
   --text-output-path PATH.txt
   -h, --help
 
-The command template must begin with ssh and contain one IPv4 last-octet
-placeholder named x. Use {user} as the optional username placeholder.
+The target may be IPv4.x, user@IPv4.x, or a full ssh command. Full commands
+may use {user} as the username placeholder.
 EOF
 }
 
@@ -101,11 +101,11 @@ fi
 [[ $username =~ ^[A-Za-z0-9._-]+$ ]] || die 'Username contains unsupported characters.'
 
 if [[ -z $command_template ]]; then
-  prompt_value 'SSH command template (use x for the last IPv4 octet): '
+  prompt_value 'SSH target or command (use x for the last IPv4 octet): '
   command_template=$PROMPT_VALUE
 fi
 
-[[ -n $command_template ]] || die 'SSH command template cannot be empty.'
+[[ -n $command_template ]] || die 'SSH target or command cannot be empty.'
 [[ $start_host =~ ^[0-9]+$ ]] || die 'start-host must be between 0 and 255.'
 [[ $end_host =~ ^[0-9]+$ ]] || die 'end-host must be between 0 and 255.'
 [[ $timeout_seconds =~ ^[0-9]+$ ]] || die 'timeout must be between 1 and 60.'
@@ -132,6 +132,21 @@ if [[ -n $text_output_path ]]; then
 
   output_directory=$(dirname "$text_output_path")
   [[ -d $output_directory ]] || die "Output directory does not exist: $output_directory"
+fi
+
+bare_target_regex='^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[xX]$'
+login_target_regex='^[A-Za-z0-9._-]+@[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[xX]$'
+escaped_login_target_regex='^([A-Za-z0-9._-]+)\\@([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[xX])$'
+if [[ $command_template =~ ^ssh(\.exe)?[[:space:]] ]]; then
+  :
+elif [[ $command_template =~ $bare_target_regex ]]; then
+  command_template="ssh {user}@${command_template}"
+elif [[ $command_template =~ $login_target_regex ]]; then
+  command_template="ssh ${command_template}"
+elif [[ $command_template =~ $escaped_login_target_regex ]]; then
+  command_template="ssh ${BASH_REMATCH[1]}@${BASH_REMATCH[2]}"
+else
+  die 'Enter IPv4.x, user@IPv4.x, or a full command beginning with ssh.'
 fi
 
 template_with_user=${command_template//\{user\}/$username}
@@ -214,7 +229,7 @@ split_ssh_command() {
 
 sample_address="${prefix}.${start_host}"
 sample_command=${template_with_user/"$target_placeholder"/"$sample_address"}
-split_ssh_command "$sample_command" || die 'Template must begin with ssh and contain balanced quotes.'
+split_ssh_command "$sample_command" || die 'SSH command contains unbalanced quotes or an invalid executable.'
 
 now_ms() {
   local value

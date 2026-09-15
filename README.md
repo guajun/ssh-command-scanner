@@ -1,6 +1,6 @@
 # SSH Command Scanner
 
-一个支持 PowerShell 与 Bash 的交互式 IPv4 `/24` SSH 扫描器。输入用户名和 SSH 命令模板后，脚本对范围内每个地址发起一次非交互连接，并在终端输出完整 ASCII 表格。
+一个支持 PowerShell 与 Bash 的交互式 IPv4 `/24` SSH 扫描器。输入用户名以及网段目标或 SSH 命令后，脚本对范围内每个地址发起一次非交互连接，并在终端输出完整 ASCII 表格。
 
 ## 一行运行
 
@@ -14,18 +14,21 @@ bash <(curl -fsSL 'https://guajun.github.io/ssh-command-scanner/scan.sh')
 
 也可以在 [GitHub Pages](https://guajun.github.io/ssh-command-scanner/) 中填写参数，生成定制的一行命令。
 
-## 命令模板
+## 目标与命令
 
-模板必须：
+输入支持三种形式：
 
-- 以 `ssh` 或 `ssh.exe` 开头；
-- 包含一个 IPv4 末段占位符 `x`，例如 `10.30.3.x`；
-- 可使用 `{user}` 作为用户名占位符；
-- 可包含 OpenSSH 参数，例如 `-p`、`-i`、`-J` 和 `-F`。
+- 裸网段：`10.30.3.x`，使用单独输入的用户名；
+- 用户目标：`admin@10.30.3.x`；
+- 完整命令：以 `ssh` 或 `ssh.exe` 开头，可包含 `-p`、`-i`、`-J` 和 `-F`。
+
+所有形式必须包含且只能包含一个 IPv4 末段占位符 `x`。完整命令可使用 `{user}` 作为用户名占位符。
 
 示例：
 
 ```text
+10.30.3.x
+admin@10.30.3.x
 ssh {user}@10.30.3.x
 ssh -p 2222 -i "C:\Users\me\.ssh\id_ed25519" {user}@10.30.3.x
 ssh -J jump-host {user}@10.30.3.x

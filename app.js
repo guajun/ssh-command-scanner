@@ -54,6 +54,11 @@ function getTemplateMatch(template) {
   return matches[0];
 }
 
+function isSupportedTargetOrCommand(value) {
+  if (/^ssh(?:\.exe)?\s/i.test(value)) return true;
+  return /^(?:[A-Za-z0-9._-]+\\?@)?\d{1,3}\.\d{1,3}\.\d{1,3}\.[xX]$/.test(value);
+}
+
 function buildCommand(state) {
   if (selectedMode === "bash") {
     const parameters = [];
@@ -120,11 +125,11 @@ function render() {
   const state = readState();
   const match = getTemplateMatch(state.template);
   const isInteractive = state.template === "";
-  const isValid = state.startHost <= state.endHost && (isInteractive || (Boolean(match) && /^ssh(?:\.exe)?\s/i.test(state.template)));
+  const isValid = state.startHost <= state.endHost && (isInteractive || (Boolean(match) && isSupportedTargetOrCommand(state.template)));
 
   elements.command.textContent = buildCommand(state);
   elements.copyButton.disabled = !isValid;
-  elements.validation.textContent = isInteractive ? "运行时询问" : isValid ? "模板有效" : "检查 ssh 开头、网段 .x 和地址范围";
+  elements.validation.textContent = isInteractive ? "运行时询问" : isValid ? "输入有效" : "请输入 IPv4.x、用户@IPv4.x 或 ssh 命令";
   elements.validation.classList.toggle("invalid", !isValid);
   renderPreview(state, match);
 }

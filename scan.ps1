@@ -77,7 +77,7 @@ function Split-SshCommandLine {
     }
 
     if ($quote -ne [char]0) {
-        throw 'SSH 命令模板包含未闭合的引号。'
+        throw 'SSH 命令包含未闭合的引号。'
     }
 
     if ($buffer.Length -gt 0) {
@@ -85,15 +85,39 @@ function Split-SshCommandLine {
     }
 
     if ($tokens.Count -eq 0) {
-        throw 'SSH 命令模板不能为空。'
+        throw 'SSH 命令不能为空。'
     }
 
     $executableName = [System.IO.Path]::GetFileName($tokens[0]).ToLowerInvariant()
     if ($executableName -notin @('ssh', 'ssh.exe')) {
-        throw '命令模板必须以 ssh 或 ssh.exe 开头。'
+        throw '完整命令必须以 ssh 或 ssh.exe 开头。'
     }
 
     return $tokens.ToArray()
+}
+
+function ConvertTo-SshCommandTemplate {
+    param([Parameter(Mandatory = $true)][string]$Value)
+
+    $trimmedValue = $Value.Trim()
+    if ($trimmedValue -match '^(?i:ssh(?:\.exe)?)\s+') {
+        return $trimmedValue
+    }
+
+    # Accept a backslash before @ when a target was copied from escaped Markdown.
+    $simpleValue = $trimmedValue -replace '\\@', '@'
+    $addressOnlyPattern = '^\d{1,3}\.\d{1,3}\.\d{1,3}\.[xX]$'
+    $loginTargetPattern = '^[A-Za-z0-9._-]+(?:\\[A-Za-z0-9._-]+)?@\d{1,3}\.\d{1,3}\.\d{1,3}\.[xX]$'
+
+    if ($simpleValue -match $addressOnlyPattern) {
+        return "ssh {user}@$simpleValue"
+    }
+
+    if ($simpleValue -match $loginTargetPattern) {
+        return "ssh $simpleValue"
+    }
+
+    throw '请输入 IPv4.x、用户名@IPv4.x，或以 ssh 开头的完整命令。'
 }
 
 function Get-ScanStatus {
@@ -174,12 +198,14 @@ if ($UserName -notmatch '^[A-Za-z0-9._-]+(?:\\[A-Za-z0-9._-]+)?$') {
 }
 
 if ([string]::IsNullOrWhiteSpace($CommandTemplate)) {
-    $CommandTemplate = (Read-Host 'SSH 命令模板（IPv4 末段使用 x）').Trim()
+    $CommandTemplate = (Read-Host 'SSH 目标或命令（IPv4 末段使用 x）').Trim()
 }
 
 if ([string]::IsNullOrWhiteSpace($CommandTemplate)) {
-    throw 'SSH 命令模板不能为空。'
+    throw 'SSH 目标或命令不能为空。'
 }
+
+$CommandTemplate = ConvertTo-SshCommandTemplate -Value $CommandTemplate
 
 if ($StartHost -gt $EndHost) {
     throw 'StartHost 不能大于 EndHost。'
@@ -195,7 +221,7 @@ $templateWithUser = [regex]::Replace(
 $addressPattern = '(?<!\d)(?<a>\d{1,3})\.(?<b>\d{1,3})\.(?<c>\d{1,3})\.[xX](?![A-Za-z0-9])'
 $addressMatches = [regex]::Matches($templateWithUser, $addressPattern)
 if ($addressMatches.Count -ne 1) {
-    throw 'SSH 命令模板必须且只能包含一个 IPv4 末段占位符 x。'
+    throw 'SSH 目标或命令必须且只能包含一个 IPv4 末段占位符 x。'
 }
 
 $addressMatch = $addressMatches[0]
@@ -205,7 +231,7 @@ $networkParts = @(
     [int]$addressMatch.Groups['c'].Value
 )
 if (@($networkParts | Where-Object { $_ -gt 255 }).Count -gt 0) {
-    throw 'SSH 命令模板中的 IPv4 网段无效。'
+    throw 'SSH 目标或命令中的 IPv4 网段无效。'
 }
 
 $prefix = $networkParts -join '.'
