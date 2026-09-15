@@ -220,6 +220,46 @@ input:focus {
   grid-column: 1 / -1;
 }
 
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 0 0 18px;
+}
+
+.check-field {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 13px;
+  color: var(--ink);
+  background: var(--white);
+  cursor: pointer;
+}
+
+.check-field input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  margin: 1px 0 0;
+  padding: 0;
+  accent-color: var(--green);
+}
+
+.check-field span {
+  display: grid;
+  gap: 3px;
+  font-size: 13px;
+}
+
+.check-field small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .command-output {
   position: relative;
   min-height: 168px;
@@ -456,6 +496,7 @@ footer {
 
   .field-grid,
   .number-grid,
+  .checkbox-grid,
   .status-layout {
     grid-template-columns: 1fr;
   }

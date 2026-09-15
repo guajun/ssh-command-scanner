@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#171918">
-  <meta name="description" content="生成可审查的 PowerShell 或 Bash 一行命令，使用当前用户 SSH key 扫描 IPv4 /24 网段并输出终端表格。">
+  <meta name="description" content="使用结构化 SSH 参数扫描 IPv4 CIDR 网段，并生成 PowerShell 或 Bash 一行命令。">
   <meta property="og:title" content="SSH Command Scanner">
-  <meta property="og:description" content="输入 IPv4 网段、用户目标或完整 SSH 命令，一次扫描一个 IPv4 /24 网段。">
+  <meta property="og:description" content="输入用户名和 IPv4 CIDR，使用 SSH key 扫描网段。">
   <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
   <title>SSH Command Scanner</title>
@@ -28,7 +28,7 @@
       <div class="shell">
         <p class="eyebrow">OPENSSH · POWERSHELL 5.1+ · BASH 3.2+</p>
         <h1 id="page-title">SSH 网段扫描器</h1>
-        <p class="lede">填写网段目标或完整 SSH 命令，生成一条可直接运行的终端命令。</p>
+        <p class="lede">填写用户名和 CIDR 网段，生成一条结构清晰、可直接运行的终端命令。</p>
 
         <form id="command-form" class="command-form">
           <div class="mode-control" role="tablist" aria-label="脚本类型">
@@ -37,12 +37,12 @@
           </div>
           <div class="field-grid">
             <label class="field">
-              <span>SSH 用户名 <small>留空则运行时询问</small></span>
-              <input id="username" name="username" type="text" autocomplete="off" spellcheck="false">
+              <span>SSH 用户名 <small>必填</small></span>
+              <input id="username" name="username" type="text" autocomplete="off" spellcheck="false" required>
             </label>
             <label class="field field-wide">
-              <span>SSH 目标或命令 <small>留空则运行时询问</small></span>
-              <input id="template" name="template" type="text" placeholder="IPv4.x、用户@IPv4.x 或 ssh ..." spellcheck="false">
+              <span>目标网段 <small>IPv4 CIDR，必填</small></span>
+              <input id="target" name="target" type="text" placeholder="IPv4/前缀长度" spellcheck="false" required>
             </label>
           </div>
 
@@ -50,12 +50,8 @@
             <summary>扫描参数</summary>
             <div class="number-grid">
               <label class="field">
-                <span>起始地址</span>
-                <input id="start-host" type="number" min="0" max="255" value="1">
-              </label>
-              <label class="field">
-                <span>结束地址</span>
-                <input id="end-host" type="number" min="0" max="255" value="254">
+                <span>SSH 端口</span>
+                <input id="port" type="number" min="1" max="65535" value="22">
               </label>
               <label class="field">
                 <span>超时（秒）</span>
@@ -63,11 +59,33 @@
               </label>
               <label class="field">
                 <span>并发数</span>
-                <input id="throttle" type="number" min="1" max="128" value="32">
+                <input id="concurrency" type="number" min="1" max="128" value="32">
+              </label>
+              <label class="field field-full">
+                <span>私钥路径 <small>可选，对应 ssh -i</small></span>
+                <input id="identity" type="text" placeholder="私钥文件路径" spellcheck="false">
+              </label>
+              <label class="field field-full">
+                <span>跳板机 <small>可选，对应 ssh -J</small></span>
+                <input id="jump-host" type="text" placeholder="用户@主机:端口" spellcheck="false">
+              </label>
+              <label class="field field-full">
+                <span>SSH config <small>可选，对应 ssh -F</small></span>
+                <input id="ssh-config" type="text" placeholder="配置文件路径" spellcheck="false">
               </label>
               <label class="field field-full">
                 <span>ASCII 表格文件 <small>可选，仅支持 .txt</small></span>
-                <input id="text-output" type="text" placeholder="C:\Temp\ssh-scan.txt" spellcheck="false">
+                <input id="text-output" type="text" placeholder="结果文件路径.txt" spellcheck="false">
+              </label>
+            </div>
+            <div class="checkbox-grid">
+              <label class="check-field">
+                <input id="all-addresses" type="checkbox">
+                <span><strong>包含边界地址</strong><small>同时扫描 IPv4 网络地址和广播地址</small></span>
+              </label>
+              <label class="check-field">
+                <input id="allow-large-range" type="checkbox">
+                <span><strong>允许大型网段</strong><small>将上限从 1024 放宽至 65536 个地址</small></span>
               </label>
             </div>
           </details>
@@ -75,7 +93,7 @@
           <div class="command-output" aria-live="polite">
             <div class="command-meta">
               <span>生成的命令</span>
-              <span id="validation-status" class="validation-status">运行时询问</span>
+              <span id="validation-status" class="validation-status invalid">请填写用户名和目标 CIDR</span>
             </div>
             <code id="generated-command"></code>
             <button id="copy-button" class="copy-button" type="button" title="复制生成的终端命令">

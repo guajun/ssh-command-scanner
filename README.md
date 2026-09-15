@@ -1,77 +1,111 @@
 # SSH Command Scanner
 
-一个支持 PowerShell 与 Bash 的交互式 IPv4 `/24` SSH 扫描器。输入用户名以及网段目标或 SSH 命令后，脚本对范围内每个地址发起一次非交互连接，并在终端输出完整 ASCII 表格。
+一个支持 PowerShell 与 Bash 的结构化 IPv4 CIDR SSH 扫描器。它使用当前用户的 OpenSSH key 或 ssh-agent，对目标地址各连接一次，并在终端输出 ASCII 表格。
 
-## 一行运行
+## 网页生成器
+
+在 [GitHub Pages](https://guajun.github.io/ssh-command-scanner/) 中填写用户名、CIDR 和 SSH 参数，即可生成适用于 PowerShell 或 Bash 的一行命令。
+
+## CLI
+
+PowerShell：
 
 ```powershell
-iex ([Text.Encoding]::UTF8.GetString((iwr -UseBasicParsing 'https://guajun.github.io/ssh-command-scanner/scan.ps1').Content).TrimStart([char]0xFEFF))
+& ([scriptblock]::Create([Text.Encoding]::UTF8.GetString((iwr -UseBasicParsing 'https://guajun.github.io/ssh-command-scanner/scan.ps1').Content).TrimStart([char]0xFEFF))) `
+  -UserName admin `
+  -Target '192.168.1.0/24'
 ```
+
+Bash：
 
 ```bash
-bash <(curl -fsSL 'https://guajun.github.io/ssh-command-scanner/scan.sh')
+bash <(curl -fsSL 'https://guajun.github.io/ssh-command-scanner/scan.sh') \
+  --user admin \
+  --target '192.168.1.0/24'
 ```
 
-也可以在 [GitHub Pages](https://guajun.github.io/ssh-command-scanner/) 中填写参数，生成定制的一行命令。
+用户名和目标是必填参数。无参数执行不会隐式询问；需要交互模式时应显式添加 `-Interactive` 或 `--interactive`。
 
-## 目标与命令
+## CIDR 目标
 
-输入支持三种形式：
-
-- 裸网段：`10.30.3.x`，使用单独输入的用户名；
-- 用户目标：`admin@10.30.3.x`；
-- 完整命令：以 `ssh` 或 `ssh.exe` 开头，可包含 `-p`、`-i`、`-J` 和 `-F`。
-
-所有形式必须包含且只能包含一个 IPv4 末段占位符 `x`。完整命令可使用 `{user}` 作为用户名占位符。
-
-示例：
+目标使用标准 IPv4 CIDR：
 
 ```text
-10.30.3.x
-admin@10.30.3.x
-ssh {user}@10.30.3.x
-ssh -p 2222 -i "C:\Users\me\.ssh\id_ed25519" {user}@10.30.3.x
-ssh -J jump-host {user}@10.30.3.x
+192.168.1.0/24
+10.30.0.0/22
+192.168.1.25/32
 ```
 
-扫描器强制使用以下连接参数：
+传入 `192.168.1.42/24` 时会规范化为 `192.168.1.0/24`。
 
-```text
-BatchMode=yes
-ConnectionAttempts=1
-ConnectTimeout=<超时秒数>
-StrictHostKeyChecking=no
-UserKnownHostsFile=NUL 或 /dev/null
-LogLevel=ERROR
-```
+默认行为：
 
-`BatchMode=yes` 会关闭密码交互。认证由当前用户的默认 OpenSSH 私钥、`ssh-agent` 中的 key，或模板中 `-i` 指定的私钥完成。私钥不会离开本机。
+- `/0` 至 `/30` 跳过网络地址和广播地址；
+- `/31` 扫描两个地址；
+- `/32` 扫描单个地址；
+- 默认最多 1024 个目标；
+- `-AllAddresses` / `--all-addresses` 包含边界地址；
+- `-AllowLargeRange` / `--allow-large-range` 将上限放宽至 65536。
 
-## 参数
+## SSH 参数
+
+| 用途 | PowerShell | Bash |
+| --- | --- | --- |
+| 用户名 | `-UserName` | `--user` |
+| CIDR | `-Target` | `--target` |
+| SSH 端口 | `-Port` | `--port` |
+| 私钥 | `-Identity` | `--identity` |
+| 跳板机 | `-JumpHost` | `--jump-host` |
+| SSH config | `-SshConfig` | `--ssh-config` |
+| 超时 | `-Timeout` | `--timeout` |
+| 并发数 | `-Concurrency` | `--concurrency` |
+| TXT 输出 | `-TextOutputPath` | `--text-output` |
+| 包含边界 | `-AllAddresses` | `--all-addresses` |
+| 大型网段 | `-AllowLargeRange` | `--allow-large-range` |
+| 交互模式 | `-Interactive` | `--interactive` |
+
+完整示例：
 
 ```powershell
 .\scan.ps1 `
   -UserName admin `
-  -CommandTemplate 'ssh {user}@10.30.3.x' `
-  -StartHost 1 `
-  -EndHost 254 `
+  -Target '192.168.1.0/24' `
+  -Port 2222 `
+  -Identity "$env:USERPROFILE\.ssh\id_ed25519" `
+  -JumpHost 'ops@bastion.example' `
   -Timeout 3 `
-  -ThrottleLimit 32 `
-  -TextOutputPath .\result.txt
+  -Concurrency 32 `
+  -TextOutputPath '.\result.txt'
 ```
 
 ```bash
 ./scan.sh \
   --user admin \
-  --command-template 'ssh {user}@10.30.3.x' \
-  --start-host 1 \
-  --end-host 254 \
+  --target '192.168.1.0/24' \
+  --port 2222 \
+  --identity "$HOME/.ssh/id_ed25519" \
+  --jump-host 'ops@bastion.example' \
   --timeout 3 \
-  --throttle-limit 32 \
-  --text-output-path ./result.txt
+  --concurrency 32 \
+  --text-output './result.txt'
 ```
 
-默认不会创建文件。仅在提供 `-TextOutputPath` 时，才会把终端中的同一张 ASCII 表格写入 UTF-8 `.txt` 文件；省略扩展名时会自动补充 `.txt`。
+脚本固定添加 `BatchMode=yes`、单次连接、主机超时和非交互主机指纹参数。密码交互被关闭；私钥始终保留在本机。
+
+## 输出
+
+默认不会创建文件，全部结果直接显示为 ASCII 表格：
+
+```text
++---------------+-----------------------+------+----------+-------------------+
+| IP            | Status                | Exit | Time(ms) | Detail            |
++---------------+-----------------------+------+----------+-------------------+
+| 192.168.1.10  | reachable_auth_failed | 255  | 108      | Permission denied |
+| 192.168.1.155 | connected             | 0    | 76       |                   |
++---------------+-----------------------+------+----------+-------------------+
+```
+
+仅当提供 TXT 输出参数时，才会把相同表格保存为 UTF-8 `.txt` 文件。
 
 状态含义：
 
@@ -79,42 +113,33 @@ LogLevel=ERROR
 | --- | --- |
 | `connected` | 已使用 key/agent 完成 SSH 登录 |
 | `reachable_auth_failed` | SSH 服务可达，但密钥认证失败 |
-| `refused` | 目标拒绝 TCP 22 或模板指定端口的连接 |
+| `refused` | 目标拒绝 SSH 连接 |
 | `unreachable_or_timeout` | 超时、无路由或网络不可达 |
 | `host_key_failed` | 主机指纹校验失败 |
 | `indeterminate` | SSH 返回 255，但没有诊断文本 |
 | `other_error` | 其他 SSH 或本地执行错误 |
 
-## 终端输出
-
-```text
-+------------+-----------------------+------+----------+-------------------+
-| IP         | Status                | Exit | Time(ms) | Detail            |
-+------------+-----------------------+------+----------+-------------------+
-| 10.30.3.94 | reachable_auth_failed | 255  | 108      | Permission denied |
-| 10.30.3.155 | connected             | 0    | 76       |                   |
-+------------+-----------------------+------+----------+-------------------+
-```
-
 ## 先审查再运行
 
+PowerShell：
+
 ```powershell
-irm https://guajun.github.io/ssh-command-scanner/scan.ps1 -OutFile .\scan.ps1
+iwr -UseBasicParsing https://guajun.github.io/ssh-command-scanner/scan.ps1 -OutFile .\scan.ps1
 Get-FileHash .\scan.ps1 -Algorithm SHA256
 notepad .\scan.ps1
-.\scan.ps1
+.\scan.ps1 -UserName admin -Target '192.168.1.0/24'
 ```
 
-每个 Release 附带 `checksums.txt`。仅扫描你有权访问的网络。
-
-Bash 脚本可以这样下载检查：
+Bash：
 
 ```bash
 curl -fSLo scan.sh https://guajun.github.io/ssh-command-scanner/scan.sh
 sha256sum scan.sh
 less scan.sh
-bash scan.sh
+bash scan.sh --user admin --target '192.168.1.0/24'
 ```
+
+每个 Release 附带 `checksums.txt`。仅扫描你有权访问的网络。
 
 ## License
 

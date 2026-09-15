@@ -3,12 +3,17 @@
 set -uo pipefail
 
 username=""
-command_template=""
-start_host=1
-end_host=254
+target=""
+port=22
+identity=""
+jump_host=""
+ssh_config=""
 timeout_seconds=3
-throttle_limit=32
+concurrency=32
 text_output_path=""
+all_addresses=0
+allow_large_range=0
+interactive=0
 detail_limit=54
 
 die() {
@@ -20,18 +25,27 @@ show_help() {
   cat <<'EOF'
 SSH Command Scanner
 
-Options:
-  --user USER
-  --command-template TEMPLATE
-  --start-host NUMBER
-  --end-host NUMBER
-  --timeout SECONDS
-  --throttle-limit NUMBER
-  --text-output-path PATH.txt
-  -h, --help
+Required:
+  --user USER                 SSH login name
+  --target CIDR               IPv4 CIDR target, for example 192.168.1.0/24
 
-The target may be IPv4.x, user@IPv4.x, or a full ssh command. Full commands
-may use {user} as the username placeholder.
+SSH options:
+  --port NUMBER               SSH port (default: 22)
+  --identity PATH             Private key passed to ssh -i
+  --jump-host HOST            Jump host passed to ssh -J
+  --ssh-config PATH           Config file passed to ssh -F
+
+Scan options:
+  --timeout SECONDS           Connection timeout (default: 3)
+  --concurrency NUMBER        Concurrent SSH processes (default: 32)
+  --text-output PATH.txt      Save the ASCII table to a UTF-8 text file
+  --all-addresses             Include IPv4 network and broadcast addresses
+  --allow-large-range         Allow 1025-65536 target addresses
+  --interactive               Prompt for missing required values
+  -h, --help                  Show this help
+
+By default, network and broadcast addresses are skipped for prefixes /0-/30.
+Both addresses in /31 and the single address in /32 are always scanned.
 EOF
 }
 
@@ -46,19 +60,29 @@ while [[ $# -gt 0 ]]; do
       username=$2
       shift 2
       ;;
-    --command-template)
+    --target)
       require_value "$@"
-      command_template=$2
+      target=$2
       shift 2
       ;;
-    --start-host)
+    --port)
       require_value "$@"
-      start_host=$2
+      port=$2
       shift 2
       ;;
-    --end-host)
+    --identity)
       require_value "$@"
-      end_host=$2
+      identity=$2
+      shift 2
+      ;;
+    --jump-host)
+      require_value "$@"
+      jump_host=$2
+      shift 2
+      ;;
+    --ssh-config)
+      require_value "$@"
+      ssh_config=$2
       shift 2
       ;;
     --timeout)
@@ -66,15 +90,27 @@ while [[ $# -gt 0 ]]; do
       timeout_seconds=$2
       shift 2
       ;;
-    --throttle-limit)
+    --concurrency)
       require_value "$@"
-      throttle_limit=$2
+      concurrency=$2
       shift 2
       ;;
-    --text-output-path)
+    --text-output)
       require_value "$@"
       text_output_path=$2
       shift 2
+      ;;
+    --all-addresses)
+      all_addresses=1
+      shift
+      ;;
+    --allow-large-range)
+      allow_large_range=1
+      shift
+      ;;
+    --interactive)
+      interactive=1
+      shift
       ;;
     -h|--help)
       show_help
@@ -88,148 +124,96 @@ done
 
 prompt_value() {
   local label=$1
-  [[ -r /dev/tty ]] || die "Interactive input is unavailable; pass all required options."
+  [[ -r /dev/tty ]] || die 'Interactive input is unavailable; pass --user and --target.'
   printf '%s' "$label" >/dev/tty
-  IFS= read -r PROMPT_VALUE </dev/tty || die "Unable to read interactive input."
+  IFS= read -r PROMPT_VALUE </dev/tty || die 'Unable to read interactive input.'
 }
 
-if [[ -z $username ]]; then
-  prompt_value 'SSH username: '
-  username=$PROMPT_VALUE
+if (( interactive )); then
+  if [[ -z $username ]]; then
+    prompt_value 'SSH username: '
+    username=$PROMPT_VALUE
+  fi
+  if [[ -z $target ]]; then
+    prompt_value 'Target CIDR: '
+    target=$PROMPT_VALUE
+  fi
 fi
 
-[[ $username =~ ^[A-Za-z0-9._-]+$ ]] || die 'Username contains unsupported characters.'
-
-if [[ -z $command_template ]]; then
-  prompt_value 'SSH target or command (use x for the last IPv4 octet): '
-  command_template=$PROMPT_VALUE
+if [[ -z $username || -z $target ]]; then
+  show_help >&2
+  die 'Both --user and --target are required; add --interactive to be prompted.'
 fi
+[[ $username != *[[:space:]]* && $username != *[$'\001'-$'\037'$'\177']* ]] || die 'user cannot contain whitespace or control characters.'
+[[ -z $jump_host || ( $jump_host != *[[:space:]]* && $jump_host != *[$'\001'-$'\037'$'\177']* ) ]] || die 'jump-host cannot contain whitespace or control characters.'
+for path_value in "$identity" "$ssh_config" "$text_output_path"; do
+  [[ $path_value != *[$'\001'-$'\037'$'\177']* ]] || die 'path options cannot contain control characters.'
+done
 
-[[ -n $command_template ]] || die 'SSH target or command cannot be empty.'
-[[ $start_host =~ ^[0-9]+$ ]] || die 'start-host must be between 0 and 255.'
-[[ $end_host =~ ^[0-9]+$ ]] || die 'end-host must be between 0 and 255.'
-[[ $timeout_seconds =~ ^[0-9]+$ ]] || die 'timeout must be between 1 and 60.'
-[[ $throttle_limit =~ ^[0-9]+$ ]] || die 'throttle-limit must be between 1 and 128.'
-command -v ssh >/dev/null 2>&1 || die 'OpenSSH client was not found in PATH.'
-
-start_host=$((10#$start_host))
-end_host=$((10#$end_host))
+for numeric_value in "$port" "$timeout_seconds" "$concurrency"; do
+  [[ $numeric_value =~ ^[0-9]+$ ]] || die 'port, timeout, and concurrency must be decimal integers.'
+done
+port=$((10#$port))
 timeout_seconds=$((10#$timeout_seconds))
-throttle_limit=$((10#$throttle_limit))
-(( start_host <= 255 )) || die 'start-host must be between 0 and 255.'
-(( end_host <= 255 )) || die 'end-host must be between 0 and 255.'
-(( start_host <= end_host )) || die 'start-host cannot be greater than end-host.'
+concurrency=$((10#$concurrency))
+(( port >= 1 && port <= 65535 )) || die 'port must be between 1 and 65535.'
 (( timeout_seconds >= 1 && timeout_seconds <= 60 )) || die 'timeout must be between 1 and 60.'
-(( throttle_limit >= 1 && throttle_limit <= 128 )) || die 'throttle-limit must be between 1 and 128.'
+(( concurrency >= 1 && concurrency <= 128 )) || die 'concurrency must be between 1 and 128.'
+command -v ssh >/dev/null 2>&1 || die 'OpenSSH client was not found in PATH.'
 
 if [[ -n $text_output_path ]]; then
   output_name=${text_output_path##*/}
   if [[ $output_name != *.* ]]; then
     text_output_path=${text_output_path}.txt
   elif [[ $text_output_path != *.txt ]]; then
-    die 'text-output-path must use the .txt extension.'
+    die 'text-output must use the .txt extension.'
   fi
 
   output_directory=$(dirname "$text_output_path")
   [[ -d $output_directory ]] || die "Output directory does not exist: $output_directory"
 fi
 
-bare_target_regex='^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[xX]$'
-login_target_regex='^[A-Za-z0-9._-]+@[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[xX]$'
-escaped_login_target_regex='^([A-Za-z0-9._-]+)\\@([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[xX])$'
-if [[ $command_template =~ ^ssh(\.exe)?[[:space:]] ]]; then
-  :
-elif [[ $command_template =~ $bare_target_regex ]]; then
-  command_template="ssh {user}@${command_template}"
-elif [[ $command_template =~ $login_target_regex ]]; then
-  command_template="ssh ${command_template}"
-elif [[ $command_template =~ $escaped_login_target_regex ]]; then
-  command_template="ssh ${BASH_REMATCH[1]}@${BASH_REMATCH[2]}"
+cidr_regex='^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})/([0-9]|[12][0-9]|3[0-2])$'
+[[ $target =~ $cidr_regex ]] || die 'target must be an IPv4 CIDR such as 192.168.1.0/24.'
+first_octet=$((10#${BASH_REMATCH[1]}))
+second_octet=$((10#${BASH_REMATCH[2]}))
+third_octet=$((10#${BASH_REMATCH[3]}))
+fourth_octet=$((10#${BASH_REMATCH[4]}))
+prefix_length=$((10#${BASH_REMATCH[5]}))
+(( first_octet <= 255 && second_octet <= 255 && third_octet <= 255 && fourth_octet <= 255 )) || die 'target contains an invalid IPv4 address.'
+
+address_value=$(( (first_octet << 24) | (second_octet << 16) | (third_octet << 8) | fourth_octet ))
+host_bits=$((32 - prefix_length))
+block_size=$((1 << host_bits))
+network_value=$((address_value - (address_value % block_size)))
+broadcast_value=$((network_value + block_size - 1))
+
+if (( ! all_addresses && prefix_length <= 30 )); then
+  first_value=$((network_value + 1))
+  last_value=$((broadcast_value - 1))
 else
-  die 'Enter IPv4.x, user@IPv4.x, or a full command beginning with ssh.'
+  first_value=$network_value
+  last_value=$broadcast_value
+fi
+target_count=$((last_value - first_value + 1))
+
+default_host_limit=1024
+absolute_host_limit=65536
+(( target_count <= absolute_host_limit )) || die "target contains ${target_count} addresses; the absolute limit is ${absolute_host_limit}."
+if (( target_count > default_host_limit && ! allow_large_range )); then
+  die "target contains ${target_count} addresses; the default limit is ${default_host_limit}. Add --allow-large-range after confirming scope."
 fi
 
-template_with_user=${command_template//\{user\}/$username}
-address_regex='(^|[^0-9])([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([xX])([^[:alnum:]]|$)'
-[[ $template_with_user =~ $address_regex ]] || die 'Template must contain one IPv4 last-octet placeholder named x.'
-
-first_octet=${BASH_REMATCH[2]}
-second_octet=${BASH_REMATCH[3]}
-third_octet=${BASH_REMATCH[4]}
-placeholder_character=${BASH_REMATCH[5]}
-first_octet=$((10#$first_octet))
-second_octet=$((10#$second_octet))
-third_octet=$((10#$third_octet))
-(( first_octet <= 255 && second_octet <= 255 && third_octet <= 255 )) || die 'Template contains an invalid IPv4 network.'
-
-prefix="${first_octet}.${second_octet}.${third_octet}"
-target_placeholder="${prefix}.${placeholder_character}"
-after_first=${template_with_user#*"$target_placeholder"}
-[[ $after_first != *"$target_placeholder"* ]] || die 'Template must contain exactly one IPv4 placeholder.'
-
-split_ssh_command() {
-  local input=$1
-  local token=""
-  local quote=""
-  local character=""
-  local next_character=""
-  local in_token=0
-  local index
-  SSH_TOKENS=()
-
-  for ((index = 0; index < ${#input}; index++)); do
-    character=${input:index:1}
-
-    if [[ -n $quote ]]; then
-      if [[ $character == "$quote" ]]; then
-        quote=""
-        in_token=1
-      elif [[ $quote == '"' && $character == "\\" && $((index + 1)) -lt ${#input} ]]; then
-        next_character=${input:index+1:1}
-        if [[ $next_character == '"' ]]; then
-          token+='"'
-          ((index += 1))
-        else
-          token+=$character
-        fi
-      else
-        token+=$character
-      fi
-      continue
-    fi
-
-    case "$character" in
-      "'"|'"')
-        quote=$character
-        in_token=1
-        ;;
-      ' '|$'\t'|$'\r'|$'\n')
-        if (( in_token )); then
-          SSH_TOKENS+=("$token")
-          token=""
-          in_token=0
-        fi
-        ;;
-      *)
-        token+=$character
-        in_token=1
-        ;;
-    esac
-  done
-
-  [[ -z $quote ]] || return 1
-  if (( in_token )); then
-    SSH_TOKENS+=("$token")
-  fi
-  ((${#SSH_TOKENS[@]} > 0)) || return 1
-
-  local executable_name=${SSH_TOKENS[0]##*/}
-  [[ $executable_name == ssh || $executable_name == ssh.exe ]]
+number_to_ip() {
+  local value=$1
+  printf '%s.%s.%s.%s' \
+    "$(( (value >> 24) & 255 ))" \
+    "$(( (value >> 16) & 255 ))" \
+    "$(( (value >> 8) & 255 ))" \
+    "$(( value & 255 ))"
 }
 
-sample_address="${prefix}.${start_host}"
-sample_command=${template_with_user/"$target_placeholder"/"$sample_address"}
-split_ssh_command "$sample_command" || die 'SSH command contains unbalanced quotes or an invalid executable.'
+canonical_target="$(number_to_ip "$network_value")/${prefix_length}"
 
 now_ms() {
   local value
@@ -265,27 +249,26 @@ cleanup() {
 }
 trap cleanup EXIT
 
-scan_one() {
-  local host_number=$1
-  local address="${prefix}.${host_number}"
-  local rendered_command=${template_with_user/"$target_placeholder"/"$address"}
-  local started finished duration output exit_code status detail full_detail result_file
+ssh_arguments=(
+  -o BatchMode=yes
+  -o "ConnectTimeout=${timeout_seconds}"
+  -o ConnectionAttempts=1
+  -o StrictHostKeyChecking=no
+  -o UserKnownHostsFile=/dev/null
+  -o LogLevel=ERROR
+  -p "$port"
+)
+[[ -z $identity ]] || ssh_arguments+=(-i "$identity")
+[[ -z $jump_host ]] || ssh_arguments+=(-J "$jump_host")
+[[ -z $ssh_config ]] || ssh_arguments+=(-F "$ssh_config")
 
-  if ! split_ssh_command "$rendered_command"; then
-    printf -v result_file '%s/result-%03d.tsv' "$temp_dir" "$host_number"
-    printf '%03d\t%s\tother_error\t255\t0\tInvalid SSH command template\n' "$host_number" "$address" >"$result_file"
-    return
-  fi
+scan_one() {
+  local address_value_to_scan=$1
+  local address started finished duration output exit_code status detail full_detail result_file
+  address=$(number_to_ip "$address_value_to_scan")
 
   started=$(now_ms)
-  output=$("${SSH_TOKENS[0]}" \
-    -o BatchMode=yes \
-    -o "ConnectTimeout=${timeout_seconds}" \
-    -o ConnectionAttempts=1 \
-    -o StrictHostKeyChecking=no \
-    -o UserKnownHostsFile=/dev/null \
-    -o LogLevel=ERROR \
-    "${SSH_TOKENS[@]:1}" exit 2>&1)
+  output=$(ssh "${ssh_arguments[@]}" -l "$username" "$address" exit 2>&1)
   exit_code=$?
   finished=$(now_ms)
   duration=$((finished - started))
@@ -300,34 +283,33 @@ scan_one() {
     detail=${detail:0:detail_limit-3}...
   fi
 
-  printf -v result_file '%s/result-%03d.tsv' "$temp_dir" "$host_number"
-  printf '%03d\t%s\t%s\t%s\t%s\t%s\n' "$host_number" "$address" "$status" "$exit_code" "$duration" "$detail" >"$result_file"
+  printf -v result_file '%s/result-%010d.tsv' "$temp_dir" "$address_value_to_scan"
+  printf '%010d\t%s\t%s\t%s\t%s\t%s\n' "$address_value_to_scan" "$address" "$status" "$exit_code" "$duration" "$detail" >"$result_file"
 }
 
-total_hosts=$((end_host - start_host + 1))
 printf '\nSSH Command Scanner\n'
-printf 'Target: %s.%s-%s.%s  User: %s  Parallel: %s  Timeout: %ss\n' "$prefix" "$start_host" "$prefix" "$end_host" "$username" "$throttle_limit" "$timeout_seconds"
-printf 'Authentication: OpenSSH default keys, ssh-agent, or an identity passed with -i.\n\n'
+printf 'Target: %s  Addresses: %s  User: %s  Port: %s  Parallel: %s  Timeout: %ss\n' "$canonical_target" "$target_count" "$username" "$port" "$concurrency" "$timeout_seconds"
+printf 'Authentication: OpenSSH default keys, ssh-agent, or --identity.\n\n'
 
 launched=0
-for ((host_number = start_host; host_number <= end_host; host_number++)); do
+for ((address_to_scan = first_value; address_to_scan <= last_value; address_to_scan++)); do
   while :; do
     running_jobs=$(jobs -pr | wc -l | tr -d '[:space:]')
-    (( running_jobs < throttle_limit )) && break
+    (( running_jobs < concurrency )) && break
     sleep 0.05
   done
-  scan_one "$host_number" &
+  scan_one "$address_to_scan" &
   ((launched += 1))
-  printf '\rScanning: %s / %s' "$launched" "$total_hosts"
+  printf '\rScanning: %s / %s' "$launched" "$target_count"
 done
 wait
-printf '\rScanning: %s / %s\n\n' "$total_hosts" "$total_hosts"
+printf '\rScanning: %s / %s\n\n' "$target_count" "$target_count"
 
 result_count=0
 for result_file in "$temp_dir"/result-*.tsv; do
   [[ -f $result_file ]] && ((result_count += 1))
 done
-(( result_count == total_hosts )) || die "Expected ${total_hosts} results, received ${result_count}."
+(( result_count == target_count )) || die "Expected ${target_count} results, received ${result_count}."
 cat "$temp_dir"/result-*.tsv >"$temp_dir/results.tsv"
 
 ip_width=2
@@ -380,8 +362,10 @@ if [[ -n $text_output_path ]]; then
   {
     printf 'SSH Command Scanner\n'
     printf 'Generated: %s\n' "$(date '+%Y-%m-%d %H:%M:%S %z')"
-    printf 'Target: %s.%s-%s.%s\n' "$prefix" "$start_host" "$prefix" "$end_host"
-    printf 'User: %s\n\n' "$username"
+    printf 'Target: %s\n' "$canonical_target"
+    printf 'Addresses: %s\n' "$target_count"
+    printf 'User: %s\n' "$username"
+    printf 'Port: %s\n\n' "$port"
     cat "$temp_dir/table.txt"
     printf '\n%s\n' "$summary_text"
   } >"$text_output_path"
